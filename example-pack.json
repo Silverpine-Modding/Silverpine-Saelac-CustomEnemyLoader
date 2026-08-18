@@ -1,0 +1,94 @@
+{
+  "packId": "example",
+  "enemies": [
+    {
+      "id": "moss_stalker",
+      "name": "Moss Stalker",
+      "description": "a moss-covered stalker",
+      "clone": "prefab_enemy_giantrat",
+      "maxHp": 45,
+      "passive": false,
+      "fleeBehavior": "ProximityAndDamage",
+      "pathfinding": {
+        "speedBonus": 0.25
+      },
+      "loot": {
+        "mode": "Replace",
+        "min": 1,
+        "max": 2,
+        "entries": [
+          {
+            "item": "Iron Sword",
+            "tier": "Superior",
+            "weight": 3.0
+          },
+          {
+            "item": "Pile of Gold",
+            "weight": 1.0
+          }
+        ]
+      },
+      "visuals": {
+        "model": "moss_stalker.glb",
+        "rotation": [0, 0, 0],
+        "alphaCutoff": 0.1,
+        "cache": true,
+        "scale": 1.0
+      },
+      "abilities": [
+        {
+          "type": "basicAttack",
+          "cooldown": 0,
+          "minPower": 4,
+          "maxPower": 9,
+          "damageType": "Normal",
+          "sound": "sound_combat_attack_sword"
+        },
+        {
+          "type": "applyStatusEffect",
+          "cooldown": 3,
+          "minPower": 2,
+          "maxPower": 4,
+          "statusEffect": "poison"
+        }
+      ],
+      "spawns": [
+        {
+          "biome": "Forest",
+          "min": 1,
+          "max": 2
+        }
+      ],
+      "bossSpawns": [
+        {
+          "id": "old_grove_guardian",
+          "x": 125,
+          "y": -42,
+          "respawnAfterDeath": false,
+          "bossMusic": {
+            "file": "assets/grove_guardian.ogg",
+            "volume": 0.8,
+            "priority": 500,
+            "fadeSeconds": 1.25
+          },
+          "deathSong": {
+            "file": "assets/grove_restored.ogg",
+            "volume": 0.8,
+            "minRange": 0.0,
+            "maxRange": 25.0
+          }
+        }
+      ],
+      "silverpineTimedSpawns": [
+        {
+          "id": "night_raiders",
+          "startHour": 20,
+          "endHour": 5,
+          "min": 1,
+          "max": 3,
+          "edgeDepth": 8
+        }
+      ]
+    }
+  ]
+}
