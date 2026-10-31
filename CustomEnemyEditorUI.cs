@@ -11,14 +11,15 @@ using UnityEngine;
 
 namespace SilverpineMods.CustomEnemyLoader;
 
-internal sealed class CustomEnemyEditorUI : ModToolBehaviour
+internal sealed partial class CustomEnemyEditorUI : ModToolBehaviour
 {
     private const float DesignWidth = 1920f;
     private const float DesignHeight = 1080f;
     private const float SidebarInputMaxWidth = 255f;
-    private const float DetailsInputMaxWidth = 1120f;
-    private const float AssetInputMaxWidth = 1020f;
+    private const float DetailsInputMaxWidth = 1040f;
+    private const float AssetInputMaxWidth = 920f;
     private const float InlineNumberInputMaxWidth = 260f;
+    private const float FieldLabelWidth = 230f;
 
     private static readonly string[] ClonePrefabs =
     {
@@ -114,9 +115,9 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
     {
         ["general"] = true,
         ["visuals"] = true,
-        ["abilities"] = false,
+        ["abilities"] = true,
         ["loot"] = false,
-        ["spawns"] = false,
+        ["spawns"] = true,
         ["bosses"] = false,
         ["timed"] = false
     };
@@ -126,11 +127,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
     private Vector2 fileScroll;
     private Vector2 enemyScroll;
     private Vector2 detailsScroll;
-    private Vector2 abilitiesScroll;
-    private Vector2 lootScroll;
-    private Vector2 spawnsScroll;
-    private Vector2 bossSpawnsScroll;
-    private Vector2 timedSpawnsScroll;
     private Sprite[] previewSprites = Array.Empty<Sprite>();
     private bool open;
     private bool generatingPreview;
@@ -141,6 +137,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
     {
         internal string Path = "";
         internal EnemyPackDefinition Pack = new();
+        internal readonly Dictionary<string, string> PendingModelSeparations = new(StringComparer.OrdinalIgnoreCase);
         internal bool IsDraft =>
             Path.EndsWith(".enemy-draft", StringComparison.OrdinalIgnoreCase);
         internal bool IsEnabled =>
@@ -162,7 +159,10 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             }
 
             instance.AttachSession(session);
+            session.EscapeHandler = instance.HandleEscape;
             instance.open = true;
+            instance.terrainSprite = null;
+            instance.terrainLookedUp = false;
             instance.RefreshDocuments();
         }
         catch (Exception exception)
@@ -187,23 +187,11 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
 
         if (pickerOpen)
         {
-            if (Input.GetKeyDown(KeyCode.Escape))
-            {
-                if (GenericListUI.Instance != null)
-                    GenericListUI.Instance.Close();
-                pickerOpen = false;
-                status = "Selection cancelled.";
-                return;
-            }
-
             if (GenericListUI.Instance == null ||
                 !GenericListUI.Instance.gameObject.activeSelf)
                 pickerOpen = false;
-            return;
         }
-
-        if (Input.GetKeyDown(KeyCode.Escape))
-            Close();
+        if (Input.GetKeyDown(KeyCode.Escape)) HandleEscape();
     }
 
     private void OnGUI()
@@ -211,27 +199,42 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (!open || pickerOpen)
             return;
 
+        using ModGuiScope scope = ModGui.BeginScaled(DesignWidth, DesignHeight);
         GUI.enabled = true;
         GUI.color = Color.white;
         GUI.backgroundColor = Color.white;
         GUI.depth = -1000;
 
-        using ModGuiScope scope = ModGui.BeginScaled(DesignWidth, DesignHeight);
-        Color previous = GUI.color;
-        GUI.color = new Color(0.025f, 0.035f, 0.045f, 0.98f);
-        GUI.DrawTexture(new Rect(0, 0, DesignWidth, DesignHeight), Texture2D.whiteTexture);
-        GUI.color = previous;
+        EnsureEditorSkin();
+        GUISkin previousSkin = GUI.skin;
+        GUI.skin = editorSkin;
+        try
+        {
+            Color previous = GUI.color;
+            GUI.color = new Color(0.055f, 0.075f, 0.095f, 0.99f);
+            GUI.DrawTexture(new Rect(0, 0, DesignWidth, DesignHeight), Texture2D.whiteTexture);
+            GUI.color = previous;
 
-        GUILayout.BeginArea(new Rect(12, 10, DesignWidth - 24, DesignHeight - 20));
-        DrawHeader();
-        if (!string.IsNullOrWhiteSpace(status))
-            GUILayout.Label(status, GUI.skin.box);
-        GUILayout.BeginHorizontal();
-        DrawPackPanel();
-        DrawEnemyPanel();
-        DrawDetailsPanel();
-        GUILayout.EndHorizontal();
-        GUILayout.EndArea();
+            GUILayout.BeginArea(new Rect(12, 10, DesignWidth - 24, DesignHeight - 20));
+            DrawHeader();
+            if (pendingAction != null) DrawUnsavedPrompt();
+            else
+            {
+                GUILayout.BeginHorizontal(GUILayout.Height(880));
+                DrawLibrarySidebar();
+                if (assetLibraryOpen) DrawArtLibrary();
+                else { DrawDetailsPanel(); DrawPersistentPreview(); }
+                GUILayout.EndHorizontal();
+            }
+            if (!string.IsNullOrWhiteSpace(status))
+            {
+                statusScroll = GUILayout.BeginScrollView(statusScroll, GUILayout.MaxHeight(80));
+                GUILayout.Label(status, GUI.skin!.box);
+                GUILayout.EndScrollView();
+            }
+            GUILayout.EndArea();
+        }
+        finally { GUI.skin = previousSkin; }
     }
 
     private void DrawHeader()
@@ -243,112 +246,21 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             : (string.IsNullOrWhiteSpace(document.Path)
                 ? "New unsaved pack"
                 : Path.GetFileName(document.Path)));
-        if (GUILayout.Button("Refresh", GUILayout.Width(90)))
-            RefreshDocuments();
-        GUI.enabled = document != null;
-        if (GUILayout.Button("Save Pack", GUILayout.Width(110)))
-            SaveCurrent();
+        if (ActionButton("Asset library", 150))
+        { OpenArtLibrary(); GUIUtility.ExitGUI(); }
+        GUI.enabled = document != null && !generatingPreview;
+        if (ActionButton("Save Pack", 130))
+        { SaveCurrent(); GUIUtility.ExitGUI(); }
         GUI.enabled = true;
-        if (GUILayout.Button("Close", GUILayout.Width(90)))
-            Close();
+        if (ActionButton("Back to Mods", 150))
+        { RequestAction(Close); GUIUtility.ExitGUI(); }
         GUILayout.EndHorizontal();
     }
 
-    private void DrawPackPanel()
-    {
-        GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(285));
-        GUILayout.Label("Enemy packs");
-        if (GUILayout.Button("New Pack"))
-            CreateNewPack();
-
-        fileScroll = GUILayout.BeginScrollView(fileScroll);
-        foreach (PackDocument candidate in documents)
-        {
-            string label = string.IsNullOrWhiteSpace(candidate.Pack.packId)
-                ? Path.GetFileNameWithoutExtension(candidate.Path)
-                : candidate.Pack.packId!;
-            if (candidate.IsDraft)
-                label = "[Draft] " + label;
-            else if (!candidate.IsEnabled)
-                label = "[Disabled] " + label;
-            if (GUILayout.Button(label))
-                SelectDocument(candidate);
-        }
-        GUILayout.EndScrollView();
-
-        bool canToggle = document != null &&
-                         !document.IsDraft &&
-                         !string.IsNullOrWhiteSpace(document.Path) &&
-                         File.Exists(document.Path);
-        GUILayout.BeginHorizontal();
-        GUI.enabled = canToggle && document!.IsEnabled;
-        if (GUILayout.Button("Disable Pack"))
-            SetCurrentPackEnabled(enabled: false);
-        GUI.enabled = canToggle && !document!.IsEnabled;
-        if (GUILayout.Button("Enable Pack"))
-            SetCurrentPackEnabled(enabled: true);
-        GUI.enabled = true;
-        GUILayout.EndHorizontal();
-
-        if (document != null)
-        {
-            GUILayout.Label("Pack ID");
-            string next = DrawWrappedInput(
-                document.Pack.packId ?? "",
-                SidebarInputMaxWidth);
-            if (next != document.Pack.packId)
-                document.Pack.packId = next;
-            GUILayout.Label(
-                "Changing a released pack ID breaks existing save references.",
-                GUI.skin.label);
-        }
-        GUILayout.EndVertical();
-    }
-
-    private void DrawEnemyPanel()
-    {
-        GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(300));
-        GUILayout.Label("Enemies");
-        GUI.enabled = document != null;
-        if (GUILayout.Button("Add Enemy"))
-            AddEnemy();
-        GUI.enabled = true;
-
-        enemyScroll = GUILayout.BeginScrollView(enemyScroll);
-        if (document?.Pack.enemies != null)
-        {
-            for (int i = 0; i < document.Pack.enemies.Count; i++)
-            {
-                EnemyDefinition enemy = document.Pack.enemies[i];
-                string label = string.IsNullOrWhiteSpace(enemy.name)
-                    ? enemy.id ?? $"Enemy {i + 1}"
-                    : enemy.name!;
-                Color old = GUI.backgroundColor;
-                if (i == selectedEnemy)
-                    GUI.backgroundColor = new Color(0.45f, 0.75f, 0.9f);
-                if (GUILayout.Button(label))
-                    SelectEnemy(i);
-                GUI.backgroundColor = old;
-            }
-        }
-        GUILayout.EndScrollView();
-
-        GUI.enabled = CurrentEnemy != null &&
-                      document!.Pack.enemies!.Count > 1;
-        if (GUILayout.Button("Remove Selected Enemy"))
-        {
-            document!.Pack.enemies!.RemoveAt(selectedEnemy);
-            selectedEnemy = Mathf.Clamp(
-                selectedEnemy, 0, document.Pack.enemies.Count - 1);
-            SelectionChanged();
-        }
-        GUI.enabled = true;
-        GUILayout.EndVertical();
-    }
 
     private void DrawDetailsPanel()
     {
-        GUILayout.BeginVertical(GUI.skin.box);
+        GUILayout.BeginVertical(GUI.skin.box, GUILayout.Width(DesignWidth - 24 - 290 - 420 - 20));
         EnemyDefinition? enemy = CurrentEnemy;
         if (enemy == null)
         {
@@ -359,24 +271,30 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             return;
         }
 
+        GUILayout.Label(enemy.name ?? "Unnamed enemy", editorHeading!);
+        GUILayout.Label(enemy.id ?? "", editorMuted!);
+        int nextTab = GUILayout.Toolbar(editorTab, new[] { "Enemy", "Appearance", "Combat", "Spawning" });
+        if (nextTab != editorTab)
+        { CancelOffsetDrag(); editorTab = nextTab; detailsScroll = Vector2.zero; GUIUtility.ExitGUI(); }
+        GUILayout.Space(14);
         detailsScroll = GUILayout.BeginScrollView(detailsScroll);
-        if (DrawSectionHeader("general", "General and behavior"))
+        if (editorTab == 0 && DrawSectionHeader("general", "Identity and behavior"))
             DrawGeneral(enemy);
-        if (DrawSectionHeader("visuals", "Visuals and preview"))
+        if (editorTab == 1 && DrawSectionHeader("visuals", "Appearance and authoring"))
             DrawVisuals(enemy);
-        if (DrawSectionHeader(
+        if (editorTab == 2 && DrawSectionHeader(
                 "abilities", $"Abilities ({enemy.abilities?.Count ?? 0})"))
             DrawAbilities(enemy);
-        if (DrawSectionHeader(
+        if (editorTab == 2 && DrawSectionHeader(
                 "loot", enemy.loot == null ? "Loot (clone default)" : "Loot (custom)"))
             DrawLoot(enemy);
-        if (DrawSectionHeader(
+        if (editorTab == 3 && DrawSectionHeader(
                 "spawns", $"World spawns ({enemy.spawns?.Count ?? 0})"))
             DrawSpawns(enemy);
-        if (DrawSectionHeader(
+        if (editorTab == 3 && DrawSectionHeader(
                 "bosses", $"Coordinate bosses ({enemy.bossSpawns?.Count ?? 0})"))
             DrawBossSpawns(enemy);
-        if (DrawSectionHeader(
+        if (editorTab == 3 && DrawSectionHeader(
                 "timed",
                 $"Timed Silverpine outskirts ({enemy.silverpineTimedSpawns?.Count ?? 0})"))
             DrawSilverpineTimedSpawns(enemy);
@@ -392,7 +310,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             GUI.backgroundColor = new Color(0.45f, 0.75f, 0.9f);
         if (GUILayout.Button(
                 (expanded ? "▼  " : "▶  ") + label,
-                GUILayout.Height(30)))
+                GUI.skin.box))
         {
             expanded = !expanded;
             expandedSections[key] = expanded;
@@ -447,22 +365,25 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         VisualDefinition visuals = enemy.visuals;
         GUILayout.BeginVertical(GUI.skin.box);
 
-        int currentMode = visuals.model != null
+        int currentMode = !string.IsNullOrWhiteSpace(visuals.artAssetId) ? 3 : visuals.model != null
             ? 2
             : visuals.directionalImages != null ? 1 : 0;
         int nextMode = GUILayout.Toolbar(
-            currentMode, new[] { "Single Image", "4 Images", "GLB Model" });
+            currentMode, new[] { "Single Image", "4 Images", "GLB Model", "Cached art" });
         if (nextMode != currentMode)
         {
+            if (nextMode == 3) { OpenArtLibrary(); GUIUtility.ExitGUI(); return; }
+            CancelOffsetDrag();
             SetVisualMode(visuals, nextMode);
             RefreshPreview();
+            GUIUtility.ExitGUI();
         }
 
         DrawFloat(
             "In-game sprite scale",
             "visual.scale",
             visuals.scale,
-            value => visuals.scale = value);
+            value => { if (value >= .1f && value <= 10f) visuals.scale = value; });
         GUILayout.Label(
             "1 = normal size; 2 = twice as large. Collision is unchanged.");
 
@@ -482,7 +403,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (visuals.pivot is { Length: 2 })
         {
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Origin X / Y", GUILayout.Width(145));
+            GUILayout.Label("Origin X / Y", GUILayout.Width(FieldLabelWidth));
             DrawFloatInline(
                 "visual.pivot.x",
                 visuals.pivot[0],
@@ -515,6 +436,12 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             DrawDirectionalPath("Up", images.up ?? "", value => images.up = value);
             DrawDirectionalPath("Right", images.right ?? "", value => images.right = value);
         }
+        else if (nextMode == 3)
+        {
+            GUILayout.Label(visuals.artOriginalName ?? "Cached art", editorHeading!);
+            GUILayout.Label("Images are included in this pack. Recipients do not need the original model or your shared library.");
+            if (GUILayout.Button("Choose cached art")) { OpenArtLibrary(); GUIUtility.ExitGUI(); }
+        }
         else
         {
             DrawAssetPath("GLB model", visuals.model ?? "",
@@ -523,9 +450,9 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             if (!string.IsNullOrWhiteSpace(visuals.model))
                 GUILayout.Label(
                     "Authoring source is stored outside the distributable pack under " +
-                    "BepInEx/config/CustomEnemyLoaderAuthoring.");
+                    "BepInEx/shared/ArtLibrary/models. Legacy authoring folders remain readable.");
             GUILayout.BeginHorizontal();
-            GUILayout.Label("Rotation X / Y / Z", GUILayout.Width(145));
+            GUILayout.Label("Rotation X / Y / Z", GUILayout.Width(FieldLabelWidth));
             visuals.rotation ??= new[] { 0f, 0f, 0f };
             for (int axis = 0; axis < 3; axis++)
             {
@@ -569,7 +496,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (GUILayout.Button("Clear Preview"))
             ClearPreview();
         GUILayout.EndHorizontal();
-        DrawPreview();
+        if (GUILayout.Button("Add current art to shared library")) PublishCurrentArt();
         GUILayout.EndVertical();
     }
 
@@ -598,58 +525,31 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         string next = DrawWrappedInput(value, AssetInputMaxWidth);
         if (next != value)
             assign(next);
-        if (GUILayout.Button("Browse", GUILayout.Width(75)))
+        if (ActionButton("Browse", 100))
             browse(value);
         GUILayout.EndHorizontal();
         GUILayout.EndVertical();
     }
 
-    private void DrawPreview()
-    {
-        if (previewSprites.Length == 0)
-        {
-            GUILayout.Label("No preview loaded.");
-            return;
-        }
-
-        string[] labels = previewSprites.Length == 1
-            ? new[] { "Sprite" }
-            : new[] { "Down", "Left", "Up", "Right" };
-        GUILayout.BeginHorizontal();
-        for (int i = 0; i < previewSprites.Length; i++)
-        {
-            GUILayout.BeginVertical(GUI.skin.box);
-            GUILayout.Label(labels[i]);
-            Rect rect = GUILayoutUtility.GetRect(
-                100, 170, 100, 170, GUILayout.ExpandWidth(true));
-            Sprite sprite = previewSprites[i];
-            if (sprite != null)
-                GUI.DrawTexture(rect, sprite.texture, ScaleMode.ScaleToFit, true);
-            GUILayout.EndVertical();
-        }
-        GUILayout.EndHorizontal();
-    }
 
     private void DrawAbilities(EnemyDefinition enemy)
     {
         enemy.abilities ??= new List<AbilityDefinition>();
         GUILayout.BeginHorizontal();
         GUILayout.Label($"Entries ({enemy.abilities.Count})");
-        if (GUILayout.Button("Add Ability", GUILayout.Width(110)))
+        if (ActionButton("Add Ability", 110))
         {
             enemy.abilities.Add(NewBasicAttack());
             numberText.Clear();
         }
         GUILayout.EndHorizontal();
 
-        abilitiesScroll = GUILayout.BeginScrollView(
-            abilitiesScroll, GUILayout.Height(Mathf.Min(430f, 115f + enemy.abilities.Count * 135f)));
         for (int i = 0; i < enemy.abilities.Count; i++)
         {
             AbilityDefinition ability = enemy.abilities[i];
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"#{i + 1}", GUILayout.Width(28));
+            CompactLabel($"#{i + 1}", 28);
             DrawChoiceInline(
                 ability.type ?? AbilityTypes[0],
                 AbilityTypes,
@@ -659,7 +559,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                     ApplyAbilityDefaults(ability);
                     numberText.Clear();
                 });
-            if (GUILayout.Button("↑", GUILayout.Width(32)) && i > 0)
+            if (ActionButton("↑", 32) && i > 0)
             {
                 Swap(enemy.abilities, i, i - 1);
                 numberText.Clear();
@@ -667,7 +567,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 GUILayout.EndVertical();
                 break;
             }
-            if (GUILayout.Button("↓", GUILayout.Width(32)) && i + 1 < enemy.abilities.Count)
+            if (ActionButton("↓", 32) && i + 1 < enemy.abilities.Count)
             {
                 Swap(enemy.abilities, i, i + 1);
                 numberText.Clear();
@@ -675,7 +575,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 GUILayout.EndVertical();
                 break;
             }
-            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+            if (ActionButton("Remove", 70))
             {
                 enemy.abilities.RemoveAt(i);
                 numberText.Clear();
@@ -688,7 +588,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             DrawAbilityFields(ability, i);
             GUILayout.EndVertical();
         }
-        GUILayout.EndScrollView();
         GUILayout.Label("Abilities are attempted from bottom to top; place highest priority last.");
     }
 
@@ -706,12 +605,14 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (new[]
             {
                 "basicattack", "projectile", "applystatuseffect", "harmsanity",
-                "lines", "screech", "sermon", "spawnstunbubbles", "avatar"
+                "lines", "spawnstunbubbles"
             }.Contains(type))
         {
-            DrawInt("Minimum power", key + "min", ability.minPower,
+            string unit = type == "applystatuseffect" ? "turns" : type == "spawnstunbubbles" ? "bubbles" :
+                type == "harmsanity" ? "sanity loss" : "damage";
+            DrawInt("Minimum " + unit, key + "min", ability.minPower,
                 value => ability.minPower = value);
-            DrawInt("Maximum power", key + "max", ability.maxPower,
+            DrawInt("Maximum " + unit, key + "max", ability.maxPower,
                 value => ability.maxPower = value);
         }
 
@@ -830,7 +731,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         enemy.spawns ??= new List<SpawnDefinition>();
         GUILayout.BeginHorizontal();
         GUILayout.Label($"Rules ({enemy.spawns.Count})");
-        if (GUILayout.Button("Add Spawn Rule", GUILayout.Width(130)))
+        if (ActionButton("Add Spawn Rule", 130))
         {
             enemy.spawns.Add(new SpawnDefinition
                 { biome = "Forest", min = 1, max = 1 });
@@ -838,17 +739,15 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         GUILayout.EndHorizontal();
 
-        spawnsScroll = GUILayout.BeginScrollView(
-            spawnsScroll, GUILayout.Height(Mathf.Min(300f, 70f + enemy.spawns.Count * 95f)));
         for (int i = 0; i < enemy.spawns.Count; i++)
         {
             SpawnDefinition spawn = enemy.spawns[i];
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Rule #{i + 1}", GUILayout.Width(65));
+            CompactLabel($"Rule #{i + 1}", 65);
             DrawChoiceInline(spawn.biome ?? "Forest", Biomes,
                 value => spawn.biome = value);
-            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+            if (ActionButton("Remove", 70))
             {
                 enemy.spawns.RemoveAt(i);
                 numberText.Clear();
@@ -863,7 +762,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 value => spawn.max = value);
             GUILayout.EndVertical();
         }
-        GUILayout.EndScrollView();
     }
 
     private void DrawBossSpawns(EnemyDefinition enemy)
@@ -871,7 +769,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         enemy.bossSpawns ??= new List<BossSpawnDefinition>();
         GUILayout.BeginHorizontal();
         GUILayout.Label($"Entries ({enemy.bossSpawns.Count})");
-        if (GUILayout.Button("Add Boss Spawn", GUILayout.Width(130)))
+        if (ActionButton("Add Boss Spawn", 130))
         {
             enemy.bossSpawns.Add(new BossSpawnDefinition
             {
@@ -884,21 +782,13 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         GUILayout.EndHorizontal();
 
-        bossSpawnsScroll = GUILayout.BeginScrollView(
-            bossSpawnsScroll,
-            GUILayout.Height(Mathf.Min(
-                520f,
-                75f + enemy.bossSpawns.Sum(boss =>
-                    165f +
-                    (boss.bossMusic != null ? 155f : 0f) +
-                    (boss.deathSong != null ? 175f : 0f)))));
         for (int i = 0; i < enemy.bossSpawns.Count; i++)
         {
             BossSpawnDefinition boss = enemy.bossSpawns[i];
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Boss #{i + 1}", GUILayout.Width(65));
-            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+            CompactLabel($"Boss #{i + 1}", 65);
+            if (ActionButton("Remove", 70))
             {
                 enemy.bossSpawns.RemoveAt(i);
                 numberText.Clear();
@@ -1001,7 +891,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 "passable, unoccupied turf on this world tile is used.");
             GUILayout.EndVertical();
         }
-        GUILayout.EndScrollView();
         GUILayout.Label(
             "With respawning disabled, a defeat is stored in the save and survives " +
             "Silverpine's daily inactive-tile regeneration. Encounter music loops " +
@@ -1014,7 +903,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         enemy.silverpineTimedSpawns ??= new List<SilverpineTimedSpawnDefinition>();
         GUILayout.BeginHorizontal();
         GUILayout.Label($"Rules ({enemy.silverpineTimedSpawns.Count})");
-        if (GUILayout.Button("Add Timed Rule", GUILayout.Width(130)))
+        if (ActionButton("Add Timed Rule", 130))
         {
             enemy.silverpineTimedSpawns.Add(new SilverpineTimedSpawnDefinition
             {
@@ -1029,17 +918,13 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         GUILayout.EndHorizontal();
 
-        timedSpawnsScroll = GUILayout.BeginScrollView(
-            timedSpawnsScroll,
-            GUILayout.Height(Mathf.Min(
-                440f, 80f + enemy.silverpineTimedSpawns.Count * 220f)));
         for (int i = 0; i < enemy.silverpineTimedSpawns.Count; i++)
         {
             SilverpineTimedSpawnDefinition timed = enemy.silverpineTimedSpawns[i];
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"Rule #{i + 1}", GUILayout.Width(65));
-            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+            CompactLabel($"Rule #{i + 1}", 65);
+            if (ActionButton("Remove", 70))
             {
                 enemy.silverpineTimedSpawns.RemoveAt(i);
                 numberText.Clear();
@@ -1064,7 +949,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 "Enemies spawn once per daily window and are removed when it ends.");
             GUILayout.EndVertical();
         }
-        GUILayout.EndScrollView();
     }
 
     private void DrawLoot(EnemyDefinition enemy)
@@ -1093,7 +977,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
 
         GUILayout.BeginHorizontal();
         GUILayout.Label($"Loot entries ({loot.entries.Count})");
-        if (GUILayout.Button("Add Loot Entry", GUILayout.Width(120)))
+        if (ActionButton("Add Loot Entry", 120))
         {
             loot.entries.Add(new LootEntryDefinition
                 { item = "Pile of Gold", weight = 1f });
@@ -1103,8 +987,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         GUILayout.EndHorizontal();
 
-        lootScroll = GUILayout.BeginScrollView(
-            lootScroll, GUILayout.Height(Mathf.Min(390f, 70f + loot.entries.Count * 145f)));
         for (int i = 0; i < loot.entries.Count; i++)
         {
             LootEntryDefinition entry = loot.entries[i];
@@ -1117,11 +999,11 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             }
             GUILayout.BeginVertical(GUI.skin.box);
             GUILayout.BeginHorizontal();
-            GUILayout.Label($"#{i + 1}", GUILayout.Width(28));
+            CompactLabel($"#{i + 1}", 28);
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Choose item...", GUILayout.Width(105)))
+            if (ActionButton("Choose item...", 105))
                 OpenLootItemPicker(entry);
-            if (GUILayout.Button("Remove", GUILayout.Width(70)))
+            if (ActionButton("Remove", 70))
             {
                 loot.entries.RemoveAt(i);
                 numberText.Clear();
@@ -1143,7 +1025,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 value => entry.weight = value);
             GUILayout.EndVertical();
         }
-        GUILayout.EndScrollView();
         GUILayout.Label(
             "The picker includes base items, ItemLibrary additions from other mods, " +
             "and stable qualified IDs from Custom Item Loader.");
@@ -1314,11 +1195,11 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         Action<int> assign)
     {
         GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(145));
+        GUILayout.Label(label, GUILayout.Width(FieldLabelWidth));
         string text = NumberText(key, value.ToString(CultureInfo.InvariantCulture));
         string next = DrawWrappedInput(text, DetailsInputMaxWidth);
         numberText[key] = next;
-        if (int.TryParse(next, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+        if (int.TryParse(next, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed) && parsed != value)
             assign(parsed);
         GUILayout.EndHorizontal();
     }
@@ -1327,10 +1208,11 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         string label,
         string key,
         float value,
-        Action<float> assign)
+        Action<float> assign,
+        float labelWidth = FieldLabelWidth)
     {
         GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(145));
+        GUILayout.Label(label, GUILayout.Width(labelWidth));
         DrawFloatInline(key, value, assign);
         GUILayout.EndHorizontal();
     }
@@ -1347,7 +1229,8 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             minWidth: 55f);
         numberText[key] = next;
         if (float.TryParse(
-                next, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed))
+                next, NumberStyles.Float, CultureInfo.InvariantCulture, out float parsed) &&
+            !float.IsNaN(parsed) && !float.IsInfinity(parsed) && parsed != value)
             assign(parsed);
     }
 
@@ -1363,7 +1246,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             clipping = TextClipping.Clip,
             fixedHeight = 0f,
             stretchWidth = true,
-            stretchHeight = true
+            stretchHeight = false
         };
 
         string next = GUILayout.TextArea(
@@ -1371,7 +1254,8 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             wrappedInputStyle,
             GUILayout.MinWidth(minWidth),
             GUILayout.MaxWidth(maxWidth),
-            GUILayout.ExpandWidth(true));
+            GUILayout.ExpandWidth(true),
+            GUILayout.ExpandHeight(false));
         return allowNewlines
             ? next
             : next.Replace("\r", "").Replace("\n", "");
@@ -1394,7 +1278,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         Action<string> assign)
     {
         GUILayout.BeginHorizontal();
-        GUILayout.Label(label, GUILayout.Width(145));
+        GUILayout.Label(label, GUILayout.Width(FieldLabelWidth));
         DrawChoiceInline(current, values, assign);
         GUILayout.EndHorizontal();
     }
@@ -1405,10 +1289,10 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         Action<string> assign)
     {
         int index = IndexOf(values, current);
-        if (GUILayout.Button("◀", GUILayout.Width(32)))
+        if (ActionButton("◀", 32))
             assign(values[(index - 1 + values.Count) % values.Count]);
-        GUILayout.Label(values[index], GUILayout.MinWidth(190));
-        if (GUILayout.Button("▶", GUILayout.Width(32)))
+        GUILayout.Label(values[index], GUILayout.MinWidth(80), GUILayout.MaxWidth(650), GUILayout.ExpandWidth(true));
+        if (ActionButton("▶", 32))
             assign(values[(index + 1) % values.Count]);
     }
 
@@ -1447,7 +1331,11 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (document == null)
             return;
         document.Pack.enemies ??= new List<EnemyDefinition>();
-        document.Pack.enemies.Add(NewEnemy());
+        EnemyDefinition added = NewEnemy();
+        int number = 2;
+        while (document.Pack.enemies.Any(enemy => string.Equals(enemy.id, added.id, StringComparison.OrdinalIgnoreCase)))
+            added.id = "new_enemy_" + number++;
+        document.Pack.enemies.Add(added);
         selectedEnemy = document.Pack.enemies.Count - 1;
         SelectionChanged();
     }
@@ -1506,6 +1394,8 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
 
     private void SetVisualMode(VisualDefinition visuals, int mode)
     {
+        visuals.artAssetId = null;
+        visuals.artOriginalName = null;
         visuals.image = mode == 0 ? "" : null;
         visuals.directionalImages = mode == 1 ? new DirectionalImages() : null;
         visuals.model = mode == 2 ? "" : null;
@@ -1563,6 +1453,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         document = value;
         selectedEnemy = 0;
         SelectionChanged();
+        savedDocumentJson = JsonConvert.SerializeObject(document.Pack);
         status = "Loaded " + Path.GetFileName(value.Path);
     }
 
@@ -1607,23 +1498,23 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
 
     private void SelectionChanged()
     {
+        CancelOffsetDrag();
+        removeConfirmation = false;
+        previewDirection = 0;
         numberText.Clear();
         detailsScroll = Vector2.zero;
-        abilitiesScroll = Vector2.zero;
-        lootScroll = Vector2.zero;
-        spawnsScroll = Vector2.zero;
-        bossSpawnsScroll = Vector2.zero;
-        timedSpawnsScroll = Vector2.zero;
         RefreshPreview();
     }
 
-    private void SaveCurrent()
+    private bool SaveCurrent()
     {
         if (document == null)
-            return;
+            return false;
 
         try
         {
+            CancelOffsetDrag();
+            string? selectedId = CurrentEnemy?.id;
             document.Pack.Validate(
                 string.IsNullOrWhiteSpace(document.Path) ? "new pack" : document.Path);
             foreach (EnemyDefinition enemy in document.Pack.enemies!)
@@ -1654,14 +1545,19 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 File.Exists(originalPath))
                 File.Delete(originalPath);
             string savedName = Path.GetFileName(document.Path);
+            string separationStatus = FinishModelSeparations();
             RefreshDocuments();
-            status = $"Saved {savedName}. Restart Silverpine to load changes.";
+            int restoredIndex = document?.Pack.enemies?.FindIndex(e => e.id == selectedId) ?? -1;
+            if (restoredIndex >= 0) SelectEnemy(restoredIndex);
+            status = $"Saved {savedName}. Restart Silverpine to load changes." + separationStatus;
+            return true;
         }
         catch (Exception exception)
         {
             string draftMessage = TrySaveDraft();
             status = "Save failed: " + exception.Message + draftMessage;
             Plugin.Log.LogError("Enemy editor save failed: " + exception);
+            return false;
         }
     }
 
@@ -1756,14 +1652,10 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                 try
                 {
                     string folder = GetPackFolder();
-                    string assets = Path.Combine(folder, "assets");
-                    Directory.CreateDirectory(assets);
-                    string destination = Path.Combine(assets, Path.GetFileName(selected));
-                    if (!Path.GetFullPath(selected).Equals(
-                            Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
-                        File.Copy(selected, destination, overwrite: true);
-                    string relative = MakeRelativePath(folder, destination)
-                        .Replace(Path.DirectorySeparatorChar, '/');
+                    string extension = Path.GetExtension(selected).ToLowerInvariant();
+                    string relative = extension is ".png" or ".jpg" or ".jpeg"
+                        ? SharedArtApi.ImportImage(selected, folder)
+                        : ImportAudioAsset(selected, folder);
                     assign(relative);
                     RefreshPreview();
                     status = "Copied asset to " + relative;
@@ -1816,10 +1708,12 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
                         string destination = EnemyVisualLoader.ImportAuthoringModel(
                             selected, qualifiedId);
                         visuals.model = Path.GetFileName(destination);
+                        visuals.artOriginalName = SharedArtLibrary.OriginalModelName(selected);
+                        visuals.artAssetId = null;
                         visuals.cache = true;
                         ClearPreview();
                         status =
-                            "Imported GLB into separate authoring storage. Build the " +
+                            "Imported GLB into the shared model library. Build the " +
                             "distribution cache before releasing the pack.";
                     }
                     catch (Exception exception)
@@ -1853,8 +1747,13 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         string id = string.IsNullOrWhiteSpace(document.Pack.packId)
             ? "new-enemy-pack"
             : document.Pack.packId!;
-        string folder = Path.Combine(Plugin.PackDirectory, SafeFileName(id));
+        string stem = Path.Combine(Plugin.PackDirectory, SafeFileName(id));
+        string folder = stem;
+        int suffix = 2;
+        while (Directory.Exists(folder)) folder = stem + "_" + suffix++;
         Directory.CreateDirectory(folder);
+        // Fix a draft's asset location before imports. Renaming its ID must not orphan its assets.
+        document.Path = Path.Combine(folder, "enemies.enemy-draft");
         return folder;
     }
 
@@ -1908,12 +1807,14 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         catch (Exception exception)
         {
+            ClearPreview();
             status = "Preview unavailable: " + exception.Message;
         }
     }
 
     private async void GenerateGlbPreview()
     {
+        if (generatingPreview) return;
         EnemyDefinition? enemy = CurrentEnemy;
         if (enemy?.visuals == null || string.IsNullOrWhiteSpace(enemy.visuals.model))
         {
@@ -1921,46 +1822,58 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
             return;
         }
 
+        CancelOffsetDrag();
+        PackDocument sourceDocument = document!;
+        string sourceJson = JsonConvert.SerializeObject(enemy.visuals);
+        VisualDefinition snapshot = JsonConvert.DeserializeObject<VisualDefinition>(sourceJson)!;
+        string folder = GetPackFolder();
+        string qualifiedId = GetQualifiedEnemyId(enemy);
+        int generation = ++previewGeneration;
+        void EnsureCurrent()
+        {
+            if (this == null || !open || generation != previewGeneration ||
+                !ReferenceEquals(document, sourceDocument) || !ReferenceEquals(CurrentEnemy, enemy) ||
+                GetQualifiedEnemyId(enemy) != qualifiedId || GetPackFolder() != folder ||
+                JsonConvert.SerializeObject(enemy.visuals) != sourceJson)
+                throw new OperationCanceledException("Enemy selection or visual settings changed. Build again when ready.");
+        }
         generatingPreview = true;
         status = "Building four directional distribution sprites…";
+        Sprite[] rendered = Array.Empty<Sprite>();
         try
         {
-            string folder = GetPackFolder();
-            string qualifiedId = GetQualifiedEnemyId(enemy);
-            Sprite[] rendered =
-                await EnemyVisualLoader.GenerateDistributionCacheAsync(
+            snapshot.Validate();
+            rendered = await EnemyVisualLoader.GenerateDistributionCacheAsync(
                     folder,
                     qualifiedId,
-                    enemy.visuals);
-            string authoringPath;
-            try
-            {
-                authoringPath = EnemyVisualLoader.SeparateModelFromPack(
+                    snapshot, EnsureCurrent);
+            EnsureCurrent();
+            string authoringPath = EnemyVisualLoader.PrepareModelSeparation(
                     folder,
                     qualifiedId,
-                    enemy.visuals.model!);
-            }
-            catch
-            {
-                foreach (Sprite sprite in rendered)
-                {
-                    Destroy(sprite.texture);
-                    Destroy(sprite);
-                }
-                throw;
-            }
+                    snapshot.model!, out string? embeddedSource);
+            if (embeddedSource != null)
+                sourceDocument.PendingModelSeparations[embeddedSource] = authoringPath;
             enemy.visuals.model = Path.GetFileName(authoringPath);
             enemy.visuals.cache = true;
-            ClearPreview();
+            enemy.visuals.artOriginalName ??= SharedArtLibrary.OriginalModelName(authoringPath);
+            ClearPreview(invalidateRender: false);
             previewSprites = rendered;
             foreach (Sprite sprite in rendered)
             {
                 ownedPreviewObjects.Add(sprite);
                 ownedPreviewObjects.Add(sprite.texture);
             }
+            rendered = Array.Empty<Sprite>(); // Preview now owns the results.
             status =
                 "Distribution cache ready. The GLB is stored separately under " +
-                "CustomEnemyLoaderAuthoring and is not required in the released pack.";
+                "BepInEx/shared/ArtLibrary/models. Save Pack to finish removing any unused embedded GLB.";
+            try { PublishEnemyArt(enemy, folder, sourceDocument.Pack.packId ?? ""); }
+            catch (Exception error) { status += " Shared-library publish failed: " + error.Message; }
+        }
+        catch (OperationCanceledException exception)
+        {
+            if (this != null && open) status = exception.Message;
         }
         catch (Exception exception)
         {
@@ -1969,6 +1882,7 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         }
         finally
         {
+            foreach (Sprite sprite in rendered) { Destroy(sprite.texture); Destroy(sprite); }
             generatingPreview = false;
         }
     }
@@ -1976,24 +1890,26 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
     private Sprite LoadPreviewSprite(string path, VisualDefinition visuals)
     {
         Texture2D texture = new(2, 2, TextureFormat.ARGB32, false);
-        if (!texture.LoadImage(File.ReadAllBytes(path), false))
-            throw new InvalidDataException("Unity could not decode " + path);
-        texture.filterMode = FilterMode.Point;
-        Vector2 pivot = visuals.HasPivot
-            ? visuals.Pivot
-            : new Vector2(0.5f, 16f / (texture.height * visuals.scale));
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0, 0, texture.width, texture.height),
-            pivot,
-            32f / visuals.scale);
-        ownedPreviewObjects.Add(sprite);
-        ownedPreviewObjects.Add(texture);
-        return sprite;
+        try
+        {
+            if (!texture.LoadImage(File.ReadAllBytes(path), false))
+                throw new InvalidDataException("Unity could not decode " + path);
+            texture.filterMode = FilterMode.Point;
+            Sprite sprite = Sprite.Create(
+                texture,
+                new Rect(0, 0, texture.width, texture.height),
+                new Vector2(.5f, .5f),
+                32f);
+            ownedPreviewObjects.Add(sprite);
+            ownedPreviewObjects.Add(texture);
+            return sprite;
+        }
+        catch { Destroy(texture); throw; }
     }
 
-    private void ClearPreview()
+    private void ClearPreview(bool invalidateRender = true)
     {
+        if (invalidateRender) previewGeneration++;
         previewSprites = Array.Empty<Sprite>();
         foreach (UnityEngine.Object value in ownedPreviewObjects)
             if (value != null)
@@ -2003,6 +1919,8 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
 
     private void Close()
     {
+        CancelOffsetDrag();
+        pendingAction = null;
         open = false;
         pickerOpen = false;
         if (document != null &&
@@ -2029,16 +1947,6 @@ internal sealed class CustomEnemyEditorUI : ModToolBehaviour
         if (!File.Exists(path))
             throw new FileNotFoundException("Asset was not found.", path);
         return path;
-    }
-
-    private static string MakeRelativePath(string folder, string path)
-    {
-        Uri root = new(
-            Path.GetFullPath(folder).TrimEnd(
-                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) +
-            Path.DirectorySeparatorChar);
-        Uri target = new(Path.GetFullPath(path));
-        return Uri.UnescapeDataString(root.MakeRelativeUri(target).ToString());
     }
 
     private static string SafeFileName(string value)

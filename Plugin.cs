@@ -24,7 +24,7 @@ namespace SilverpineMods.CustomEnemyLoader;
 [BepInPlugin(Guid, Name, Version)]
 [BepInDependency(
     Silverpine.ModdingTools.Plugin.PluginGuid,
-    "1.7.1")]
+    "1.13.0")]
 [BepInDependency(
     "renegadex.silverpine.customitemloader",
     BepInDependency.DependencyFlags.SoftDependency)]
@@ -32,7 +32,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string Guid = "renegadex.silverpine.customenemyloader";
     public const string Name = "Custom Enemy Loader";
-    public const string Version = "1.3.12";
+    public const string Version = "1.4.1";
 
     internal static ManualLogSource Log = null!;
     internal static string PackDirectory = "";
@@ -48,7 +48,7 @@ public sealed class Plugin : BaseUnityPlugin
         AuthoringDirectory = Path.Combine(
             Paths.ConfigPath, "CustomEnemyLoaderAuthoring");
         Directory.CreateDirectory(PackDirectory);
-        Directory.CreateDirectory(AuthoringDirectory);
+        Directory.CreateDirectory(SharedModelSources.Root);
         ModdingToolsMenu.RegisterSession(
             Guid + ".enemy-editor",
             "Custom Enemy Editor",
@@ -1558,7 +1558,7 @@ internal static class EnemyVisualLoader
         if (!string.IsNullOrWhiteSpace(visuals.image))
         {
             Sprite sprite = LoadSprite(Resolve(packFolder, visuals.image!), id + ":single",
-                visuals.HasPivot ? visuals.Pivot : null, visuals.scale);
+                visuals, 0);
             ClearDirections(mover);
             mover.nonDirectionalSprite = sprite;
             renderer.sprite = sprite;
@@ -1568,17 +1568,9 @@ internal static class EnemyVisualLoader
         Sprite[] directional;
         if (visuals.directionalImages != null)
         {
-            directional = new[]
-            {
-                LoadSprite(Resolve(packFolder, visuals.directionalImages.down!), id + ":down",
-                    visuals.HasPivot ? visuals.Pivot : null, visuals.scale),
-                LoadSprite(Resolve(packFolder, visuals.directionalImages.left!), id + ":left",
-                    visuals.HasPivot ? visuals.Pivot : null, visuals.scale),
-                LoadSprite(Resolve(packFolder, visuals.directionalImages.up!), id + ":up",
-                    visuals.HasPivot ? visuals.Pivot : null, visuals.scale),
-                LoadSprite(Resolve(packFolder, visuals.directionalImages.right!), id + ":right",
-                    visuals.HasPivot ? visuals.Pivot : null, visuals.scale)
-            };
+            directional = LoadDirections(new[] { visuals.directionalImages.down!,
+                visuals.directionalImages.left!, visuals.directionalImages.up!, visuals.directionalImages.right! }
+                .Select(path => Resolve(packFolder, path)).ToArray(), visuals, id);
         }
         else
         {
@@ -1613,7 +1605,8 @@ internal static class EnemyVisualLoader
     internal static async Task<Sprite[]> GenerateDistributionCacheAsync(
         string packFolder,
         string id,
-        VisualDefinition visuals)
+        VisualDefinition visuals,
+        Action? ensureCurrent = null)
     {
         string modelPath = ResolveExistingModel(
             packFolder, id, visuals.model!);
@@ -1621,7 +1614,7 @@ internal static class EnemyVisualLoader
             GetCacheDirectory(packFolder, id),
             modelPath,
             visuals,
-            id);
+            id, ensureCurrent);
     }
 
     internal static void ValidateDistributableModelSource(
@@ -1645,42 +1638,23 @@ internal static class EnemyVisualLoader
         string selectedPath,
         string id)
     {
-        if (!File.Exists(selectedPath))
-            throw new FileNotFoundException(
-                "Selected GLB authoring source was not found.", selectedPath);
-        string destination = GetAuthoringModelPath(
-            id, Path.GetFileName(selectedPath));
-        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-        if (!Path.GetFullPath(selectedPath).Equals(
-                Path.GetFullPath(destination),
-                StringComparison.OrdinalIgnoreCase))
-            File.Copy(selectedPath, destination, overwrite: true);
-        return destination;
+        return SharedModelSources.Import(selectedPath);
     }
 
-    internal static string SeparateModelFromPack(
+    internal static string PrepareModelSeparation(
         string packFolder,
         string id,
-        string modelReference)
+        string modelReference,
+        out string? embeddedSource)
     {
         string embeddedPath = ResolveContainedPath(packFolder, modelReference);
-        string destination = GetAuthoringModelPath(id, modelReference);
-        if (File.Exists(embeddedPath))
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            if (!Path.GetFullPath(embeddedPath).Equals(
-                    Path.GetFullPath(destination),
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                File.Copy(embeddedPath, destination, overwrite: true);
-                File.Delete(embeddedPath);
-            }
-        }
-        if (!File.Exists(destination))
-            throw new FileNotFoundException(
-                "No GLB authoring source is available to separate from the pack.",
-                embeddedPath);
-        return destination;
+        string source = ResolveExistingModel(packFolder, id, modelReference);
+        if (!HasCompleteDirectionalCache(GetCacheDirectory(packFolder, id)))
+            throw new InvalidDataException("Build all four cached views before separating the GLB.");
+        embeddedSource = File.Exists(embeddedPath) ? embeddedPath : null;
+        // Do not remove an embedded source until the updated JSON is saved. Other
+        // enemies may still reference it, and the user can discard this edit.
+        return SharedModelSources.Import(source);
     }
 
     internal static string GetCacheDirectory(string packFolder, string id) =>
@@ -1698,36 +1672,40 @@ internal static class EnemyVisualLoader
         string cache,
         string modelPath,
         VisualDefinition visuals,
-        string id)
+        string id,
+        Action? ensureCurrent = null)
     {
+        string modelHash = SharedArtLibrary.FileHash(modelPath);
         Sprite[] rendered = await EnemyGlbDirectionalRenderer.RenderAsync(
             modelPath, visuals.Rotation, visuals.alphaCutoff, id);
 
-        Directory.CreateDirectory(cache);
-        for (int i = 0; i < DirectionNames.Length; i++)
-            File.WriteAllBytes(Path.Combine(cache, DirectionNames[i] + ".png"),
-                rendered[i].texture.EncodeToPNG());
-
-        File.WriteAllText(Path.Combine(cache, "manifest.json"),
-            JsonConvert.SerializeObject(new RenderManifest
-            {
-                modelWriteUtcTicks = File.GetLastWriteTimeUtc(modelPath).Ticks,
-                rotation = visuals.rotation,
-                alphaCutoff = visuals.alphaCutoff,
-                rendererVersion = 5
-            }, Formatting.Indented));
-
-        foreach (Sprite sprite in rendered)
+        try
         {
-            UnityEngine.Object.Destroy(sprite.texture);
-            UnityEngine.Object.Destroy(sprite);
+            ensureCurrent?.Invoke();
+            if (SharedArtLibrary.FileHash(modelPath) != modelHash)
+                throw new OperationCanceledException("The GLB source changed during rendering. Build it again.");
+            DirectionalCacheFiles.Write(cache, rendered.Select(sprite => sprite.texture.EncodeToPNG()).ToArray(),
+                JsonConvert.SerializeObject(new RenderManifest
+                {
+                    modelWriteUtcTicks = File.GetLastWriteTimeUtc(modelPath).Ticks,
+                    modelSha256 = modelHash,
+                    rotation = visuals.rotation,
+                    alphaCutoff = visuals.alphaCutoff,
+                    rendererVersion = 5
+                }, Formatting.Indented), ensureCurrent);
+        }
+        finally
+        {
+            foreach (Sprite sprite in rendered)
+            {
+                UnityEngine.Object.Destroy(sprite.texture);
+                UnityEngine.Object.Destroy(sprite);
+            }
         }
 
         // Load independent PNG-backed assets so runtime ownership is identical
         // for cached and newly rendered models.
-        return DirectionNames.Select(name => LoadSprite(
-            Path.Combine(cache, name + ".png"), id + ":" + name,
-            visuals.HasPivot ? visuals.Pivot : null, visuals.scale)).ToArray();
+        return LoadDirections(DirectionNames.Select(name => Path.Combine(cache, name + ".png")).ToArray(), visuals, id);
     }
 
     private static Sprite[]? TryLoadCache(
@@ -1741,20 +1719,21 @@ internal static class EnemyVisualLoader
         string manifestPath = Path.Combine(cache, "manifest.json");
         if (!File.Exists(manifestPath))
             return null;
-        RenderManifest? manifest =
-            JsonConvert.DeserializeObject<RenderManifest>(File.ReadAllText(manifestPath));
+        RenderManifest? manifest;
+        try { manifest = JsonConvert.DeserializeObject<RenderManifest>(File.ReadAllText(manifestPath)); }
+        catch (JsonException) { return null; }
         if (manifest == null ||
             manifest.rendererVersion != 5 ||
-            manifest.modelWriteUtcTicks != File.GetLastWriteTimeUtc(modelPath).Ticks ||
+            (manifest.modelSha256 != null
+                ? manifest.modelSha256 != SharedArtLibrary.FileHash(modelPath)
+                : manifest.modelWriteUtcTicks != File.GetLastWriteTimeUtc(modelPath).Ticks) ||
             manifest.alphaCutoff != visuals.alphaCutoff ||
             !SameRotation(manifest.rotation, visuals.rotation))
             return null;
 
         if (!HasCompleteDirectionalCache(cache))
             return null;
-        return DirectionNames.Select(name => LoadSprite(
-            Path.Combine(cache, name + ".png"), id + ":" + name,
-            visuals.HasPivot ? visuals.Pivot : null, visuals.scale)).ToArray();
+        return LoadDirections(DirectionNames.Select(name => Path.Combine(cache, name + ".png")).ToArray(), visuals, id);
     }
 
     private static Sprite[]? TryLoadDistributedCache(
@@ -1764,36 +1743,63 @@ internal static class EnemyVisualLoader
     {
         if (!HasCompleteDirectionalCache(cache))
             return null;
-        return DirectionNames.Select(name => LoadSprite(
-            Path.Combine(cache, name + ".png"), id + ":" + name,
-            visuals.HasPivot ? visuals.Pivot : null, visuals.scale)).ToArray();
+        return LoadDirections(DirectionNames.Select(name => Path.Combine(cache, name + ".png")).ToArray(), visuals, id);
     }
 
     private static bool HasCompleteDirectionalCache(string cache) =>
         DirectionNames.All(name =>
             File.Exists(Path.Combine(cache, name + ".png")));
 
+    private static Sprite[] LoadDirections(string[] paths, VisualDefinition visuals, string id)
+    {
+        var result = new List<Sprite>();
+        try
+        {
+            for (int i = 0; i < paths.Length; i++)
+                result.Add(LoadSprite(paths[i], id + ":" + DirectionNames[i], visuals, i));
+            return result.ToArray();
+        }
+        catch
+        {
+            foreach (Sprite sprite in result)
+            { UnityEngine.Object.Destroy(sprite.texture); UnityEngine.Object.Destroy(sprite); }
+            throw;
+        }
+    }
+
+    internal static Vector2 ResolvePivot(int width, int height, VisualDefinition visuals, int direction, bool includeOffset = true)
+    {
+        float scale = Mathf.Max(.1f, visuals.scale);
+        Vector2 pivot = visuals.HasPivot ? visuals.Pivot : new Vector2(.5f, 16f / (height * scale));
+        VisualOffset offset = includeOffset ? visuals.offsets?.Get(direction) ?? new VisualOffset() : new VisualOffset();
+        return new Vector2(VisualOffset.ShiftPivot(pivot.x, width, scale, offset.x),
+            VisualOffset.ShiftPivot(pivot.y, height, scale, offset.y));
+    }
+
     private static Sprite LoadSprite(
         string path,
         string name,
-        Vector2? pivot,
-        float scale)
+        VisualDefinition visuals,
+        int direction)
     {
         Texture2D texture = new(2, 2, TextureFormat.ARGB32, false);
-        if (!texture.LoadImage(File.ReadAllBytes(path), false))
-            throw new InvalidDataException("Unity could not decode image: " + path);
-        texture.name = name;
-        texture.filterMode = FilterMode.Point;
-        // Turf transforms sit at tile centers. Keep the sprite's bottom edge
-        // half a world unit below that center regardless of visual scale.
-        Vector2 resolvedPivot = pivot ??
-            new Vector2(0.5f, 16f / (texture.height * scale));
-        Sprite sprite = Sprite.Create(texture,
-            new Rect(0, 0, texture.width, texture.height),
-            resolvedPivot,
-            32f / scale);
-        sprite.name = name;
-        return sprite;
+        try
+        {
+            if (!texture.LoadImage(File.ReadAllBytes(path), false))
+                throw new InvalidDataException("Unity could not decode image: " + path);
+            texture.name = name;
+            texture.filterMode = FilterMode.Point;
+            // Turf transforms sit at tile centers. Keep the sprite's bottom edge
+            // half a world unit below that center regardless of visual scale.
+            Vector2 resolvedPivot = ResolvePivot(texture.width, texture.height, visuals, direction);
+            Sprite sprite = Sprite.Create(texture,
+                new Rect(0, 0, texture.width, texture.height),
+                resolvedPivot,
+                32f / visuals.scale);
+            sprite.name = name;
+            return sprite;
+        }
+        catch { UnityEngine.Object.Destroy(texture); throw; }
     }
 
     private static void ClearDirections(EntityMover mover)
@@ -1825,7 +1831,7 @@ internal static class EnemyVisualLoader
         return result;
     }
 
-    private static string ResolveModelPath(
+    internal static string ResolveModelPath(
         string packFolder,
         string id,
         string modelReference)
@@ -1834,7 +1840,7 @@ internal static class EnemyVisualLoader
         if (File.Exists(embeddedPath))
             return embeddedPath;
         string authoringPath = GetAuthoringModelPath(id, modelReference);
-        return File.Exists(authoringPath) ? authoringPath : embeddedPath;
+        return File.Exists(authoringPath) ? authoringPath : SharedModelSources.Resolve(modelReference);
     }
 
     private static string ResolveExistingModel(
@@ -1864,6 +1870,7 @@ internal static class EnemyVisualLoader
     private sealed class RenderManifest
     {
         public long modelWriteUtcTicks;
+        public string? modelSha256;
         public float[]? rotation;
         public float alphaCutoff;
         public int rendererVersion;
@@ -3149,6 +3156,10 @@ internal sealed class VisualDefinition
     public bool cache = true;
     public float[]? pivot;
     public float scale = 1f;
+    public VisualOffsets? offsets;
+    // Provenance only; runtime visuals always use pack-local images/cache.
+    public string? artAssetId;
+    public string? artOriginalName;
 
     internal Vector3 Rotation => rotation is { Length: 3 }
         ? new Vector3(rotation[0], rotation[1], rotation[2])
@@ -3167,6 +3178,7 @@ internal sealed class VisualDefinition
             throw new InvalidDataException(
                 "visuals must specify exactly one of image, directionalImages, or model.");
         directionalImages?.Validate();
+        offsets?.Validate();
         if (rotation != null && rotation.Length != 3)
             throw new InvalidDataException("visuals.rotation must contain [x, y, z].");
         if (rotation != null && rotation.Any(value => !IsFinite(value)))

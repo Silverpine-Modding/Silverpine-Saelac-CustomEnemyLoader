@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>CS0649</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Compile Include="..\VisualOffsets.cs" Link="Production\VisualOffsets.cs" />
+    <Compile Include="..\EditorTerrainReference.cs" Link="Production\EditorTerrainReference.cs" />
+    <Compile Include="..\SharedModelSources.cs" Link="Production\SharedModelSources.cs" />
+    <Compile Include="..\DirectionalCacheFiles.cs" Link="Production\DirectionalCacheFiles.cs" />
+    <Compile Include="..\..\ModdingTools\SharedArtLibrary.cs" Link="Framework\SharedArtLibrary.cs" />
+    <Compile Include="..\..\ModdingTools\SharedArtFiles.cs" Link="Framework\SharedArtFiles.cs" />
+  </ItemGroup>
+</Project>

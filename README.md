@@ -1,6 +1,6 @@
 # Silverpine Custom Enemy Loader
 
-`CustomEnemyLoader` 1.3.12 adds JSON-defined enemies to Silverpine through BepInEx.
+`CustomEnemyLoader` 1.4.1 adds JSON-defined enemies to Silverpine through BepInEx.
 Enemy packs can reuse a base-game enemy's movement, collision, loot, shadow,
 and other components while replacing its name, health, behavior, combat
 abilities, visuals, sounds, and world-generation locations.
@@ -12,7 +12,7 @@ GLB and this plugin caches those sprites as PNG files.
 ## Installation
 
 1. Install BepInEx for Silverpine.
-2. Install the Silverpine Modding Tools Framework 1.7.1 or newer under
+2. Install the Silverpine Modding Tools Framework 1.13.0 or newer under
    `BepInEx/plugins/ModdingTools/`.
 3. Build this project or obtain `CustomEnemyLoader.dll`.
 4. Put the plugin files in a dedicated folder:
@@ -29,10 +29,10 @@ GLB and this plugin caches those sprites as PNG files.
 
    ```text
    BepInEx/config/CustomEnemyLoader/
-   BepInEx/config/CustomEnemyLoaderAuthoring/
+   BepInEx/shared/ArtLibrary/models/
    ```
 
-6. Put each enemy pack's JSON and assets somewhere below that directory.
+6. Put each enemy pack's JSON and assets below `BepInEx/config/CustomEnemyLoader/`.
 
 Do not copy `ModdingTools.dll` into the CustomEnemyLoader folder. All consumer
 plugins use the framework's single installed copy. Modding Tools also supplies
@@ -53,6 +53,15 @@ The editor provides:
 - Enable and disable installed packs without renaming or modifying their JSON
 - Width-limited editor text inputs that wrap and grow downward for long values
 - Multiple enemies per pack
+- Item Loader-style colors, searchable enemy sidebar, pack selector, and tabs
+  for Enemy, Appearance, Combat, and Spawning
+- Persistent Artwork/World preview with Down, Left, Up, and Right views
+- Per-direction world offsets: drag the artwork against a fixed turf reference,
+  enter X/Y values, or nudge with arrow keys (0.01 tile; Shift: 0.1 tile)
+- Shared asset browser using ModdingTools' art-cache API; reuse Item Loader art,
+  publish enemy views, and copy chosen images into a distributable pack
+- Duplicate enemies and confirm removals; unsaved-change prompts on exit,
+  switching packs, and reloading files
 - Collapsible sections for general settings, visuals, abilities, loot, and each
   spawning mode
 - Base-enemy clone selection
@@ -76,13 +85,14 @@ The editor provides:
 
 Click **Save Pack** when finished. Runtime enemy templates are registered during
 plugin startup, so restart Silverpine after saving a new or modified pack.
-Press **Escape** or **Close** to leave the editor and return control to the
-Modding Tools submenu.
+Use **Back to Mods** to return to the Modding Tools submenu. **Escape** first
+cancels an active picker or offset drag, closes the art library, or prompts
+about unsaved changes before leaving. A failed save preserves an editable draft.
 
 ### Enabling and disabling packs
 
 Select an installed pack and use **Disable Pack** or **Enable Pack** below the
-pack list. Disabled packs remain visible with a **[Disabled]** prefix, but their
+pack selector. Disabled packs remain visible with a **(disabled)** suffix, but their
 enemies are not registered the next time Silverpine starts. Restart the game
 after changing a pack's state.
 
@@ -95,7 +105,7 @@ existing save has the same missing-prefab consequences as temporarily removing
 that pack; re-enable the same pack and restart before loading that save again.
 
 Incomplete new packs and failed saves are preserved as `enemies.enemy-draft`.
-They appear in the pack list with a **[Draft]** prefix but are ignored by the
+They appear in the pack selector with a **(draft)** suffix but are ignored by the
 runtime enemy loader until they pass validation and are saved as
 `enemies.json`.
 
@@ -103,8 +113,11 @@ The editor writes distributable packs inside
 `BepInEx/config/CustomEnemyLoader/`. Ordinary imported assets are copied into
 an `assets` folder beside the pack JSON. GLB source models are authoring files,
 so the editor stores them separately under
-`BepInEx/config/CustomEnemyLoaderAuthoring/` and never requires recipients to
-install that directory.
+`BepInEx/shared/ArtLibrary/models/` and never requires recipients to install
+that directory. Existing `BepInEx/config/CustomEnemyLoaderAuthoring/` sources
+remain readable. New model imports share readable filenames with content hashes
+and reuse identical sources across packs. Different files with the same original
+name cannot overwrite each other.
 
 The development build command is:
 
@@ -120,27 +133,26 @@ The distributable pack contains JSON, ordinary assets, and generated cache
 images. The GLB remains in the separate authoring tree:
 
 ```text
-BepInEx/config/
-├── CustomEnemyLoader/
-│   └── MossPack/
-│       ├── enemies.json
-│       ├── .cache/
-│       │   └── myname_mosspack_moss_stalker/
-│       │       ├── manifest.json
-│       │       ├── down.png
-│       │       ├── left.png
-│       │       ├── up.png
-│       │       └── right.png
-│       └── sprites/
-│           └── moss_blob.png
-└── CustomEnemyLoaderAuthoring/
-    └── myname_mosspack_moss_stalker/
-        └── moss_stalker.glb
+BepInEx/
+├── config/CustomEnemyLoader/MossPack/
+│   ├── enemies.json
+│   ├── .cache/myname_mosspack_moss_stalker/
+│   │   ├── manifest.json
+│   │   ├── down.png
+│   │   ├── left.png
+│   │   ├── up.png
+│   │   └── right.png
+│   └── assets/
+│       └── <image-content-hash>.png
+└── shared/ArtLibrary/
+    ├── models/moss_stalker__<model-hash>.glb
+    ├── images/<image-content-hash>.png
+    └── entries/<art-content-hash>.json
 ```
 
 Only the `MossPack` directory is distributed. Generated GLB sprites are stored
 under its `.cache` directory. When an authoring GLB is available, changing its
-modification time, rotation, alpha cutoff, or renderer version regenerates the
+content, rotation, alpha cutoff, or renderer version regenerates the
 cache. When the GLB is absent on a recipient's computer, the complete four-PNG
 cache is treated as the released visual and loaded directly.
 
@@ -437,6 +449,44 @@ the inherited collider or movement footprint.
 | `cache` | `true` | Reuse generated PNGs when the rendering inputs have not changed. |
 | `pivot` | Automatic tile-edge anchor | Optional normalized origin override used for every visual mode. |
 | `scale` | `1` | In-game visual-size multiplier from `0.1` through `10`; does not change collision. |
+| `offsets` | Zero in every direction | Optional `down`, `left`, `up`, `right` objects containing `x` and `y` in tiles. Single-image visuals use `down` for all facing directions. |
+| `artAssetId` | — | Shared-library provenance; does not create a runtime dependency on the library. |
+| `artOriginalName` | — | Original artwork/object name shown by the editor and preserved when publishing. |
+
+Offsets move the artwork relative to its existing pivot. Positive X moves right;
+positive Y moves up. They are independent of sprite scale and render resolution,
+do not move the occupied turf, and do not alter pathfinding or collision. Missing
+directions mean zero. Values must be finite and within -100 to 100 tiles.
+
+```json
+"offsets": {
+  "down": { "x": 0.0, "y": 0.1 },
+  "left": { "x": -0.05, "y": 0.0 },
+  "up": { "x": 0.0, "y": 0.0 },
+  "right": { "x": 0.05, "y": 0.0 }
+}
+```
+
+Offsets and scale update the World preview immediately. Use **Save Pack** and
+restart the game to apply them to runtime enemy templates. Escape restores the
+offset at the beginning of an unfinished drag; mouse release commits the edit
+to the current unsaved document.
+
+#### Shared art browser
+
+Open **Asset library** or choose **Cached art** in Appearance. This uses
+`Silverpine.ModdingTools.SharedArtLibrary` and `SharedArtApi`; Item Loader is
+optional. Both editors see the same framework-owned library. **Use cached art**
+copies all views into the pack's `assets/` folder and selects single-image or
+four-direction image mode. Distribute these images with the JSON; recipients
+need neither a GLB nor your art library.
+
+**Add current art** publishes the selected source images. **Index existing enemy
+art** publishes available images/caches from loaded editor documents without
+changing those packs. Successful GLB builds also publish all four views. Shared
+entries retain the original object name and deduplicate matching image content.
+Scale, pivot, and offsets belong to each enemy and are not baked into shared art.
+The editor maps library Front/Right/Back/Left to enemy Down/Right/Up/Left.
 
 The generated sprite order is:
 
@@ -461,16 +511,17 @@ their primitive/material-slot order back to the source glTF material indices.
 #### Preparing a GLB enemy pack for distribution
 
 1. In **GLB Model** mode, use **Browse**. The editor copies the selected source
-   into `BepInEx/config/CustomEnemyLoaderAuthoring/<pack-and-enemy-id>/`, not
-   into the pack.
-2. Set rotation, alpha cutoff, scale, and pivot as desired.
+   into `BepInEx/shared/ArtLibrary/models/` outside the pack.
+2. Set rotation, alpha cutoff, scale, pivot, and directional offsets as desired.
 3. Select **Build Cache + Separate GLB**. This renders `down.png`, `left.png`,
    `up.png`, and `right.png` into the pack's derived `.cache` directory. For an
    older pack that still embeds its GLB, the same action copies that source to
-   the authoring store and removes it from the pack after rendering succeeds.
+   the authoring store. The embedded copy is removed only after a successful
+   **Save Pack**, and only if no other saved enemy or draft still references it.
+   Discarding edits or a failed save never removes the source GLB.
 4. Save the pack and distribute only its folder under `CustomEnemyLoader`.
 
-Recipients do not need the GLB or `CustomEnemyLoaderAuthoring`. At startup the
+Recipients do not need the GLB or shared art library. At startup the
 loader sees that the model is absent and automatically loads the four cached
 images. A non-empty `model` value remains in JSON to select GLB/cached-model
 visual mode and identify the author's source filename. If neither an authoring
@@ -1052,6 +1103,24 @@ Version 1.3.12 separates GLB authoring sources from distributable enemy packs.
 Complete cached directional images now load automatically when a recipient has
 no GLB. Existing packs with embedded GLBs remain supported and can be converted
 with **Build Cache + Separate GLB**.
+
+Version 1.4.1 fixes the World preview selecting grass overgrowth instead of the
+base grass ground tile. Only the exact base prefab and its Unity copies are used;
+if unavailable, a plain ground reference is shown. Short action buttons now size
+to their text, and wider field labels prevent split damage/rotation labels.
+Long user-entered text continues to wrap within the editor.
+
+Version 1.4.0 adopts ModdingTools 1.13.0's shared art API and adds the tabbed
+editor, persistent world preview, and per-direction offsets. Existing JSON,
+legacy authoring folders, cached PNGs, disabled markers, and saved prefab names
+remain compatible. New caches record the source content hash and are staged as
+a complete set before replacement. Cancelled/stale renders preserve the old
+cache. Image and audio imports use content-addressed filenames to avoid
+same-name overwrites. Editor-owned previews are released on close or disable.
+Embedded GLBs are removed only after saving the new reference and checking that
+no saved pack or recovery draft still uses them. Unsaved edits are guarded by a
+Save/Discard/Keep editing prompt. Numeric inputs reject non-finite values, and
+text fields grow only as needed for wrapping rather than filling spare height.
 
 Version 1.3.7 registers each enemy's base, boss, and timed variants atomically
 through Modding Tools' shared `SerializablePrefabs` registry. A pack either
