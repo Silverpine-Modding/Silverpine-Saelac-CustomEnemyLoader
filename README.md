@@ -1,6 +1,6 @@
 # Silverpine Custom Enemy Loader
 
-`CustomEnemyLoader` 1.4.1 adds JSON-defined enemies to Silverpine through BepInEx.
+`CustomEnemyLoader` 1.4.2 adds JSON-defined enemies to Silverpine through BepInEx.
 Enemy packs can reuse a base-game enemy's movement, collision, loot, shadow,
 and other components while replacing its name, health, behavior, combat
 abilities, visuals, sounds, and world-generation locations.
@@ -51,7 +51,10 @@ The editor provides:
 
 - New pack creation and editing of existing pack JSON files
 - Enable and disable installed packs without renaming or modifying their JSON
-- Width-limited editor text inputs that wrap and grow downward for long values
+- Width-limited editor text inputs measured at their actual available width;
+  wrapped content and blank lines expand the box and push later controls down
+- A scene-description box with at least three lines of writing space, supporting
+  Enter for new paragraphs; IDs, paths, and numbers remain newline-free
 - Multiple enemies per pack
 - Item Loader-style colors, searchable enemy sidebar, pack selector, and tabs
   for Enemy, Appearance, Combat, and Spawning
@@ -1103,6 +1106,12 @@ Version 1.3.12 separates GLB authoring sources from distributable enemy packs.
 Complete cached directional images now load automatically when a recipient has
 no GLB. Existing packs with embedded GLBs remain supported and can be converted
 with **Build Cache + Separate GLB**.
+
+Version 1.4.2 explicitly sizes text boxes to their wrapped content at the width
+allocated by the editor. Scene descriptions start with three lines of writing
+space and grow for additional text, new paragraphs, and trailing blank lines.
+Other long values wrap visually without adding newlines to IDs or asset paths.
+Deleting text shrinks the field again; later controls move with its height.
 
 Version 1.4.1 fixes the World preview selecting grass overgrowth instead of the
 base grass ground tile. Only the exact base prefab and its Unity copies are used;

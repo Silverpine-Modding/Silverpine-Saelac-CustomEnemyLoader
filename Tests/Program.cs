@@ -23,6 +23,21 @@ foreach (string? name in new[] { "prefab_tile_grass_overgrowth", "prefab_tile_gr
     "prefab_tile_grass (overgrowth)", "prefab_tile_grass (1) extra", "", null })
     Check(!EditorTerrainReference.IsGrassGround(name), "terrain reference rejects vegetation, variants, and ambiguous names: " + name);
 
+Check(EditorTextLayout.Width(0, 920, 0) == 920, "text inputs have a bounded first-layout width");
+Check(EditorTextLayout.Width(710, 920, 0) == 710, "text height uses the allocated width after adjacent controls");
+Check(EditorTextLayout.Width(1040, 255, 0) == 255, "changing panels cannot reuse an oversized input width");
+Check(EditorTextLayout.Width(20, 260, 55) == 55, "numeric inputs retain their minimum width");
+Check(EditorTextLayout.Height(20, 20) == 44, "short fields retain a readable single-line box");
+Check(EditorTextLayout.Height(140.2f, 80) == 143, "wrapped text grows the box to its measured content height");
+Check(EditorTextLayout.Height(20, 80) == 82, "multiline fields retain their minimum writing space");
+Check(EditorTextLayout.Height(500, 80) > EditorTextLayout.Height(90, 80), "longer input expands downward instead of being height-capped");
+Check(EditorTextLayout.Measurement("") == "M", "empty input has a measurable line");
+Check(EditorTextLayout.Measurement("first\n\n") == "first\n\nM", "trailing blank lines are counted when sizing the box");
+Check(EditorTextLayout.Measurement("first\r\nsecond\r") == "first\nsecond\nM", "Windows line endings measure as single line breaks");
+Check(EditorTextLayout.Measurement("unchanged") == "unchanged", "ordinary text is measured without extra characters");
+Check(EditorTextLayout.InputValue("first\r\n\nlast\n", true) == "first\r\n\nlast\n", "multiline content and blank lines are preserved without measurement placeholders");
+Check(EditorTextLayout.InputValue("asset\r\nname\n", false) == "assetname", "IDs and paths do not acquire stored line breaks");
+
 var offsets = new VisualOffsets();
 offsets.Set(1, .25f, -.4f);
 var copy = JsonConvert.DeserializeObject<VisualOffsets>(JsonConvert.SerializeObject(offsets))!;

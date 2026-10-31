@@ -32,7 +32,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string Guid = "renegadex.silverpine.customenemyloader";
     public const string Name = "Custom Enemy Loader";
-    public const string Version = "1.4.1";
+    public const string Version = "1.4.2";
 
     internal static ManualLogSource Log = null!;
     internal static string PackDirectory = "";

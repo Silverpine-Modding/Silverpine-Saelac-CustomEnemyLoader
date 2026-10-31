@@ -10,6 +10,7 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <Compile Include="..\VisualOffsets.cs" Link="Production\VisualOffsets.cs" />
     <Compile Include="..\EditorTerrainReference.cs" Link="Production\EditorTerrainReference.cs" />
+    <Compile Include="..\EditorTextLayout.cs" Link="Production\EditorTextLayout.cs" />
     <Compile Include="..\SharedModelSources.cs" Link="Production\SharedModelSources.cs" />
     <Compile Include="..\DirectionalCacheFiles.cs" Link="Production\DirectionalCacheFiles.cs" />
     <Compile Include="..\..\ModdingTools\SharedArtLibrary.cs" Link="Framework\SharedArtLibrary.cs" />

@@ -132,6 +132,8 @@ internal sealed partial class CustomEnemyEditorUI : ModToolBehaviour
     private bool generatingPreview;
     private bool pickerOpen;
     private GUIStyle? wrappedInputStyle;
+    private readonly List<float> wrappedInputWidths = new();
+    private int wrappedInputIndex;
 
     private sealed class PackDocument
     {
@@ -206,6 +208,7 @@ internal sealed partial class CustomEnemyEditorUI : ModToolBehaviour
         GUI.depth = -1000;
 
         EnsureEditorSkin();
+        wrappedInputIndex = 0;
         GUISkin previousSkin = GUI.skin;
         GUI.skin = editorSkin;
         try
@@ -1244,21 +1247,38 @@ internal sealed partial class CustomEnemyEditorUI : ModToolBehaviour
         {
             wordWrap = true,
             clipping = TextClipping.Clip,
+            fixedWidth = 0f,
             fixedHeight = 0f,
             stretchWidth = true,
-            stretchHeight = false
+            stretchHeight = false,
+            alignment = TextAnchor.UpperLeft,
+            contentOffset = Vector2.zero
         };
 
-        string next = GUILayout.TextArea(
-            value,
+        // Reserve width independently of the text, so long values cannot widen
+        // a row. Repaint supplies the actual width after adjacent buttons, box
+        // padding and scrollbars; the next Layout measures at that same width.
+        int index = wrappedInputIndex++;
+        float width = EditorTextLayout.Width(
+            index < wrappedInputWidths.Count ? wrappedInputWidths[index] : 0f, maxWidth, minWidth);
+        float minimumHeight = wrappedInputStyle.CalcHeight(
+            new GUIContent(allowNewlines ? "M\nM\nM" : "M"), width);
+        float height = EditorTextLayout.Height(wrappedInputStyle.CalcHeight(
+            new GUIContent(EditorTextLayout.Measurement(value)), width), minimumHeight);
+        Rect rect = GUILayoutUtility.GetRect(
+            GUIContent.none,
             wrappedInputStyle,
             GUILayout.MinWidth(minWidth),
             GUILayout.MaxWidth(maxWidth),
             GUILayout.ExpandWidth(true),
+            GUILayout.Height(height),
             GUILayout.ExpandHeight(false));
-        return allowNewlines
-            ? next
-            : next.Replace("\r", "").Replace("\n", "");
+        if (Event.current.type == EventType.Repaint && rect.width > 0f)
+        {
+            while (wrappedInputWidths.Count <= index) wrappedInputWidths.Add(0f);
+            wrappedInputWidths[index] = rect.width;
+        }
+        return EditorTextLayout.InputValue(GUI.TextArea(rect, value, wrappedInputStyle), allowNewlines);
     }
 
     private string NumberText(string key, string fallback)

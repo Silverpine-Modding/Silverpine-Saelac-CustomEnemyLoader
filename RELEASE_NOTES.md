@@ -1,23 +1,22 @@
-# Custom Enemy Loader 1.4.1
+# Custom Enemy Loader 1.4.2
 
 Created by **Saelac and ChatGPT**.
 
 ## Requirements
 
 - Silverpine 1.7.3 and BepInEx 5.
-- **[ModdingTools 1.13.0 or newer](https://github.com/Silverpine-Modding/Silverpine-Saelac-Modding-Tools/releases) is required.** Version 1.12.1 is not compatible; this release uses the new shared art-cache API. ModdingTools is distributed separately. If 1.13.0 is not yet available, wait for that release before upgrading Enemy Loader.
+- **[ModdingTools 1.13.0 or newer](https://github.com/Silverpine-Modding/Silverpine-Saelac-Modding-Tools/releases) is required.** Version 1.12.1 is not compatible; this release uses the shared art-cache API. ModdingTools is distributed separately.
 - Custom Item Loader is optional, for selecting its registered items in enemy loot pools.
 
-## Changes since 1.3.12
+## Changes since 1.4.1
 
-- Redesigned the editor with a searchable enemy sidebar, Enemy/Appearance/Combat/Spawning tabs, and a persistent directional Artwork/World preview.
-- Added per-direction artwork offsets, with drag editing, numeric controls, keyboard nudging, and reset. Offsets affect artwork, not collision or pathfinding.
-- Integrated ModdingTools' shared art library, including reuse of Item Loader artwork and copying selected images into distributable enemy packs.
-- Moved imported GLB authoring sources into the shared model store, with content-based deduplication. Existing packs and legacy authoring locations remain supported.
-- Hardened cache generation and asset imports: complete-set replacement, cancellation protection, source-content checks, and content-addressed imported filenames.
-- Added unsaved-change prompts, safer embedded-GLB separation, preview cleanup, and validation against non-finite numeric inputs.
-- Fixed World preview terrain selection: use the grass ground tile, not grass vegetation or overgrowth.
-- Fixed cramped action buttons and split damage/rotation labels. Long text inputs still wrap and expand downward within the editor.
+- Scene descriptions now start with three lines of writing space and expand downward for wrapped text, new paragraphs, and trailing blank lines.
+- Text-box heights are explicitly measured at the width actually allocated by the editor, including space taken by adjacent Browse buttons, padding, and scrollbars.
+- Growing fields push subsequent controls down. Shortening the text shrinks them again.
+- Long asset paths and other values wrap visually without widening the form or obscuring adjacent controls. IDs, paths, and numeric fields remain free of stored line breaks.
+- Added 14 text-layout and newline regression checks.
+
+The tabbed editor, shared art library, per-direction offsets, corrected grass-ground preview, and readable action buttons from 1.4.1 are retained.
 
 Existing JSON packs, distributed directional PNG caches, disabled markers, and saved enemy prefab names remain compatible. Recipients do not need an authoring GLB when the pack includes its complete four-view cache.
 
@@ -32,6 +31,6 @@ Keep your existing packs under `BepInEx/config/CustomEnemyLoader/` and restart t
 ## Verification
 
 - Release build passed with zero warnings and zero errors.
-- All 45 regression checks passed.
-- In-game verification confirmed the grass ground reference and readable Combat-panel labels/buttons.
+- All 59 regression checks passed.
+- In-game verification covered a six-line paragraph, trailing blank lines, shortening text, and a long asset path beside its Browse button.
 - Installed pack JSON files were unchanged by testing.
