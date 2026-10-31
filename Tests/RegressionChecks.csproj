@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Reference Include="Mono.Cecil"><HintPath>..\..\..\BepInEx\core\Mono.Cecil.dll</HintPath></Reference>
+    <Compile Include="..\EnemySpriteLighting.cs" Link="Production\EnemySpriteLighting.cs" />
     <Compile Include="..\VisualOffsets.cs" Link="Production\VisualOffsets.cs" />
     <Compile Include="..\EditorTerrainReference.cs" Link="Production\EditorTerrainReference.cs" />
     <Compile Include="..\EditorTextLayout.cs" Link="Production\EditorTextLayout.cs" />

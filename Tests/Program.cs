@@ -15,6 +15,9 @@ void Reject(Action action, string message)
     Check(rejected, message);
 }
 
+EnemyLightingChecks.Run(Check);
+EnemyLightingChecks.CheckCompiledIntegration(Check, args.Length > 0 ? args[0] : Directory.GetCurrentDirectory());
+
 foreach (string name in new[] { "prefab_tile_grass", "PREFAB_TILE_GRASS", "prefab_tile_grass(Clone)",
     "prefab_tile_grass (Clone)", "prefab_tile_grass (1)" })
     Check(EditorTerrainReference.IsGrassGround(name), "terrain reference accepts only base grass or its Unity copies: " + name);

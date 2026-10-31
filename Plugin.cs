@@ -32,7 +32,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string Guid = "renegadex.silverpine.customenemyloader";
     public const string Name = "Custom Enemy Loader";
-    public const string Version = "1.4.2";
+    public const string Version = "1.4.3";
 
     internal static ManualLogSource Log = null!;
     internal static string PackDirectory = "";
@@ -1554,6 +1554,9 @@ internal static class EnemyVisualLoader
     {
         EntityMover mover = template.GetComponent<EntityMover>();
         SpriteRenderer renderer = template.GetSpriteRendererExtended();
+        // Covers single images, directional images, and generated/distributed
+        // GLB caches before any visual-mode early return. Instances inherit it.
+        EnemySpriteLighting.ApplyDiffuse(renderer);
 
         if (!string.IsNullOrWhiteSpace(visuals.image))
         {

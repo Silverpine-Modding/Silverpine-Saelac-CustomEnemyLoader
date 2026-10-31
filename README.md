@@ -1,6 +1,6 @@
 # Silverpine Custom Enemy Loader
 
-`CustomEnemyLoader` 1.4.2 adds JSON-defined enemies to Silverpine through BepInEx.
+`CustomEnemyLoader` 1.4.3 adds JSON-defined enemies to Silverpine through BepInEx.
 Enemy packs can reuse a base-game enemy's movement, collision, loot, shadow,
 and other components while replacing its name, health, behavior, combat
 abilities, visuals, sounds, and world-generation locations.
@@ -8,6 +8,17 @@ abilities, visuals, sounds, and world-generation locations.
 Visuals can come from one PNG, four directional PNGs, or one GLB model.
 Silverpine's own model renderer generates the four directional sprites from a
 GLB and this plugin caches those sprites as PNG files.
+
+Custom enemy artwork uses Silverpine's native diffuse-lit sprite material in the
+world, so it responds to darkness and nearby lights even when the cloned enemy
+uses an unlit material. This is automatic for single images, directional images,
+shared-library art, and generated or distributed GLB caches. Existing packs need
+no JSON changes or cache rebuild; restart the game after updating the plugin.
+Bosses, timed spawns, and enemies restored from saves inherit the same material.
+The editor's Artwork/World previews remain image previews, not lighting simulations.
+Native enemies, projectile effects, and the shared artwork files are unchanged.
+If the game's diffuse material is unavailable, a warning is logged and the
+cloned material is retained so the enemy can still load.
 
 ## Installation
 

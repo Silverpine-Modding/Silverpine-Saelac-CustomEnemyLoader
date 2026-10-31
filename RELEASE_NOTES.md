@@ -1,4 +1,4 @@
-# Custom Enemy Loader 1.4.2
+# Custom Enemy Loader 1.4.3
 
 Created by **Saelac and ChatGPT**.
 
@@ -8,15 +8,16 @@ Created by **Saelac and ChatGPT**.
 - **[ModdingTools 1.13.0 or newer](https://github.com/Silverpine-Modding/Silverpine-Saelac-Modding-Tools/releases) is required.** Version 1.12.1 is not compatible; this release uses the shared art-cache API. ModdingTools is distributed separately.
 - Custom Item Loader is optional, for selecting its registered items in enemy loot pools.
 
-## Changes since 1.4.1
+## Changes since 1.4.2
 
-- Scene descriptions now start with three lines of writing space and expand downward for wrapped text, new paragraphs, and trailing blank lines.
-- Text-box heights are explicitly measured at the width actually allocated by the editor, including space taken by adjacent Browse buttons, padding, and scrollbars.
-- Growing fields push subsequent controls down. Shortening the text shrinks them again.
-- Long asset paths and other values wrap visually without widening the form or obscuring adjacent controls. IDs, paths, and numeric fields remain free of stored line breaks.
-- Added 14 text-layout and newline regression checks.
+- Custom enemy sprites now explicitly use Silverpine's native diffuse-lit material, including enemies cloned from unlit base prefabs.
+- Applies automatically to single-image, directional-image, shared-library, and GLB/cached-image visuals. Boss and timed templates and saved enemies inherit the same lighting material.
+- Existing artwork and distributed caches need no regeneration or JSON changes. Restart the game after updating.
+- Only the custom enemy renderer's material reference changes; native enemies, sprite tints, projectile effects, and shared image files are untouched. Editor previews remain unlit image previews.
+- If the game's diffuse material is unavailable, the loader warns once and preserves the cloned material so enemies remain loadable.
+- Added 11 lighting-helper and compiled-integration regression checks.
 
-The tabbed editor, shared art library, per-direction offsets, corrected grass-ground preview, and readable action buttons from 1.4.1 are retained.
+The auto-expanding multiline fields, tabbed editor, shared art library, per-direction offsets, corrected grass-ground preview, and readable action buttons are retained.
 
 Existing JSON packs, distributed directional PNG caches, disabled markers, and saved enemy prefab names remain compatible. Recipients do not need an authoring GLB when the pack includes its complete four-view cache.
 
@@ -31,6 +32,6 @@ Keep your existing packs under `BepInEx/config/CustomEnemyLoader/` and restart t
 ## Verification
 
 - Release build passed with zero warnings and zero errors.
-- All 59 regression checks passed.
-- In-game verification covered a six-line paragraph, trailing blank lines, shortening text, and a long asset path beside its Browse button.
-- Installed pack JSON files were unchanged by testing.
+- All 70 regression checks passed, including native-material assignment, clone isolation, tint/art preservation, missing-resource recovery, and compiled coverage of every enemy visual mode.
+- Live day/night and lantern rendering has not been visually tested for this build.
+- No installed pack JSON or artwork files were edited.
