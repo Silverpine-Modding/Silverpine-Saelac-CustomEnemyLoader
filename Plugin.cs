@@ -24,7 +24,7 @@ namespace SilverpineMods.CustomEnemyLoader;
 [BepInPlugin(Guid, Name, Version)]
 [BepInDependency(
     Silverpine.ModdingTools.Plugin.PluginGuid,
-    "1.13.0")]
+    "1.13.1")]
 [BepInDependency(
     "renegadex.silverpine.customitemloader",
     BepInDependency.DependencyFlags.SoftDependency)]
@@ -32,7 +32,7 @@ public sealed class Plugin : BaseUnityPlugin
 {
     public const string Guid = "renegadex.silverpine.customenemyloader";
     public const string Name = "Custom Enemy Loader";
-    public const string Version = "1.4.3";
+    public const string Version = "1.4.4";
 
     internal static ManualLogSource Log = null!;
     internal static string PackDirectory = "";

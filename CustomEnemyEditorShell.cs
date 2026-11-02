@@ -14,6 +14,8 @@ internal sealed partial class CustomEnemyEditorUI
     private static readonly string[] ViewNames = { "Down", "Left", "Up", "Right" };
     private int editorTab, previewTab = 1, previewDirection, previewGeneration;
     private bool packPickerOpen, packSettingsOpen, assetLibraryOpen, removeConfirmation;
+    private SharedArtLibrary.Entry? artDeleteConfirmation;
+    private long libraryRevision = -1;
     private string librarySearch = "", enemySearch = "";
     private int libraryPage;
     private Vector2 libraryScroll, previewScroll, statusScroll;
@@ -54,6 +56,7 @@ internal sealed partial class CustomEnemyEditorUI
             pickerOpen = false; status = "Selection cancelled.";
         }
         else if (draggedVisual != null) CancelOffsetDrag();
+        else if (artDeleteConfirmation != null) artDeleteConfirmation = null;
         else if (pendingAction != null) pendingAction = null;
         else if (assetLibraryOpen) assetLibraryOpen = false;
         else RequestAction(Close);
@@ -411,23 +414,36 @@ internal sealed partial class CustomEnemyEditorUI
 
     private void OpenArtLibrary()
     {
-        CancelOffsetDrag(); assetLibraryOpen = true; libraryPage = 0; ReloadArtLibrary();
+        CancelOffsetDrag(); assetLibraryOpen = true; libraryPage = 0; artDeleteConfirmation = null; ReloadArtLibrary();
     }
 
     private void ReloadArtLibrary()
     {
+        libraryRevision = SharedArtApi.Revision;
         ClearLibraryThumbnails(); libraryEntries.Clear();
         try { libraryEntries.AddRange(SharedArtLibrary.ReadEntries(message => Plugin.Log.LogWarning("Art library: " + message))); }
         catch (Exception error) { status = "Cannot read shared art: " + error.Message; }
+        if (artDeleteConfirmation != null && !libraryEntries.Any(e => e.id == artDeleteConfirmation.id)) artDeleteConfirmation = null;
     }
 
     private void DrawArtLibrary()
     {
+        if (Event.current.type == EventType.Layout && libraryRevision != SharedArtApi.Revision) ReloadArtLibrary();
         GUILayout.BeginVertical(GUI.skin.box);
         GUILayout.BeginHorizontal(); GUILayout.Label("Shared asset library", editorHeading!);
-        if (ActionButton("Back to editor", 190)) { assetLibraryOpen = false; GUIUtility.ExitGUI(); }
+        if (ActionButton("Back to editor", 190)) { assetLibraryOpen = false; artDeleteConfirmation = null; GUIUtility.ExitGUI(); }
         GUILayout.EndHorizontal();
         GUILayout.Label("BepInEx/shared/ArtLibrary · reusable cached views · shared with Item Loader", editorMuted!);
+        if (artDeleteConfirmation != null)
+        {
+            GUILayout.Label("Delete \"" + artDeleteConfirmation.originalName + "\" from the shared library?", editorHeading!);
+            GUILayout.Label("This affects every mod's library. Pack copies and images used by other entries stay intact. " +
+                "Mods reading the shared asset directly may lose access. A recovery copy is kept in ArtLibrary/trash.");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Confirm delete")) { DeleteLibraryEntry(artDeleteConfirmation.id); GUIUtility.ExitGUI(); }
+            if (GUILayout.Button("Cancel")) { artDeleteConfirmation = null; GUIUtility.ExitGUI(); }
+            GUILayout.EndHorizontal(); GUILayout.EndVertical(); return;
+        }
         string search = DrawWrappedInput(librarySearch, 1450);
         if (search != librarySearch) { librarySearch = search; libraryPage = 0; ClearLibraryThumbnails(); }
         GUILayout.BeginHorizontal();
@@ -483,7 +499,24 @@ internal sealed partial class CustomEnemyEditorUI
         catch (Exception error) { failedLibraryThumbnails.Add(entry.id); GUI.Label(rect, "Preview unavailable: " + error.Message); }
         GUI.enabled = CurrentEnemy != null && !failedLibraryThumbnails.Contains(entry.id);
         if (GUILayout.Button("Use cached art")) { UseLibraryEntry(entry); GUIUtility.ExitGUI(); }
-        GUI.enabled = true; GUILayout.EndVertical();
+        GUI.enabled = true;
+        if (GUILayout.Button("Delete from library")) { artDeleteConfirmation = entry; GUIUtility.ExitGUI(); }
+        GUILayout.EndVertical();
+    }
+
+    private void DeleteLibraryEntry(string id)
+    {
+        artDeleteConfirmation = null;
+        try
+        {
+            var result = SharedArtApi.Delete(id);
+            ReloadArtLibrary();
+            status = result.Deleted
+                ? $"Art removed; {result.DeletedImageCount} unused image(s) removed, {result.SharedImageCount} shared image(s) retained. " +
+                  "Recovery copy: " + result.RecoveryDirectory
+                : "This art was already removed from the library.";
+        }
+        catch (Exception error) { ReloadArtLibrary(); status = "Cannot delete shared art: " + error.Message; }
     }
 
     private static void ApplyLibraryEntry(VisualDefinition visuals, SharedArtLibrary.Entry entry, string folder)
@@ -563,6 +596,7 @@ internal sealed partial class CustomEnemyEditorUI
 
     protected override void OnDisable()
     {
+        artDeleteConfirmation = null;
         if (open && HasUnsavedChanges) TrySaveDraft();
         CancelOffsetDrag(); ClearPreview(); ClearLibraryThumbnails();
         open = false; pickerOpen = false;

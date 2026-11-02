@@ -1,6 +1,6 @@
 # Silverpine Custom Enemy Loader
 
-`CustomEnemyLoader` 1.4.3 adds JSON-defined enemies to Silverpine through BepInEx.
+`CustomEnemyLoader` 1.4.4 adds JSON-defined enemies to Silverpine through BepInEx.
 Enemy packs can reuse a base-game enemy's movement, collision, loot, shadow,
 and other components while replacing its name, health, behavior, combat
 abilities, visuals, sounds, and world-generation locations.
@@ -20,10 +20,28 @@ Native enemies, projectile effects, and the shared artwork files are unchanged.
 If the game's diffuse material is unavailable, a warning is logged and the
 cloned material is retained so the enemy can still load.
 
+## Shared-library deletion (1.4.4)
+
+Each shared-art card has **Delete from library**, followed by confirmation.
+Escape cancels the prompt. The same framework operation is used by Item Loader
+and Growables: deletion affects the shared catalog for all mods, but preserves
+pack-local images, source GLBs, and images referenced by other library entries.
+Mods using the deleted library entry directly may lose access.
+
+A recovery copy is kept under `BepInEx/shared/ArtLibrary/trash`; no automatic
+purge occurs, so this is not a disk-space cleanup operation. To restore, close
+the game and copy its `entries/` and `images/` files back into the corresponding
+library folders, preserving existing files. Invalid or unreadable records block
+deletion. See the Modding Tools README for the complete API/recovery contract.
+
+Browsers refresh cached entries and thumbnails when another mod publishes or
+deletes art, using an in-memory revision token rather than filesystem polling.
+Opening the library does not republish removed art; explicit indexing can.
+
 ## Installation
 
 1. Install BepInEx for Silverpine.
-2. Install the Silverpine Modding Tools Framework 1.13.0 or newer under
+2. Install the Silverpine Modding Tools Framework 1.13.1 or newer under
    `BepInEx/plugins/ModdingTools/`.
 3. Build this project or obtain `CustomEnemyLoader.dll`.
 4. Put the plugin files in a dedicated folder:
